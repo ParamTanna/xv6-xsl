@@ -65,6 +65,16 @@ sys_dup(void)
   return fd;
 }
 
+// how many times read() has been called since boot.
+// updated with an atomic add since many cpus can be in read() at once.
+uint64 readcount;
+
+uint64
+sys_getreadcount(void)
+{
+  return readcount;
+}
+
 uint64
 sys_read(void)
 {
@@ -72,6 +82,7 @@ sys_read(void)
   int n;
   uint64 p;
 
+  __sync_fetch_and_add(&readcount, 1);
   argaddr(1, &p);
   argint(2, &n);
   if (argfd(0, 0, &f) < 0)
