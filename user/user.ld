@@ -2,7 +2,8 @@ OUTPUT_ARCH( "riscv" )
 
 SECTIONS
 {
- . = 0x0;
+ /* page 0 is left unmapped so that null pointers trap */
+ . = 0x1000;
  
   .text : {
     *(.text .text.*)

@@ -463,6 +463,9 @@ vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
   if (va >= psz)
     return 0;
   va = PGROUNDDOWN(va);
+  // page 0 is never mapped, so a null pointer always faults.
+  if (va < PGSIZE)
+    return 0;
   if (ismapped(pagetable, va)) {
     return 0;
   }
