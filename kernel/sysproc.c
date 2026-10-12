@@ -110,3 +110,35 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// mprotect(addr, len): make len pages starting at addr read-only.
+// munprotect(addr, len): make them writable again.
+// addr must be page aligned and the pages must be inside the process.
+static uint64
+protect(int writable)
+{
+  uint64 addr;
+  int len;
+  struct proc *p = myproc();
+
+  argaddr(0, &addr);
+  argint(1, &len);
+  if (addr % PGSIZE != 0 || len <= 0 || addr >= p->sz)
+    return -1;
+  if ((uint64)len * PGSIZE > p->sz - addr)
+    return -1;
+  return uvmprotect(p->pagetable, p->sz, addr, len, writable);
+}
+
+uint64
+sys_mprotect(void)
+{
+  return protect(0);
+}
+
+uint64
+sys_munprotect(void)
+{
+  return protect(1);
+}
+

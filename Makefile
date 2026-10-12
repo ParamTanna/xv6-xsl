@@ -153,6 +153,7 @@ UPROGS=\
 	$U/_sync\
 	$U/_readcount\
 	$U/_nulltest\
+	$U/_protect\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

@@ -480,6 +480,41 @@ vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
   return mem;
 }
 
+// turn write permission off (writable == 0) or back on
+// for npages user pages starting at va. lazy pages that
+// were never touched are allocated first so they have a PTE.
+// returns 0 on success, -1 if a page is not part of the process.
+int
+uvmprotect(pagetable_t pagetable, uint64 psz, uint64 va, int npages,
+           int writable)
+{
+  pte_t *pte;
+  uint64 a, end;
+
+  end = va + (uint64)npages * PGSIZE;
+
+  // first check every page, so we don't change half the range.
+  for (a = va; a < end; a += PGSIZE) {
+    if (!ismapped(pagetable, a) && vmfault(pagetable, psz, a, 0) == 0)
+      return -1;
+    pte = walk(pagetable, a, 0);
+    if ((*pte & PTE_U) == 0)
+      return -1;
+  }
+
+  for (a = va; a < end; a += PGSIZE) {
+    pte = walk(pagetable, a, 0);
+    if (writable)
+      *pte |= PTE_W;
+    else
+      *pte &= ~PTE_W;
+  }
+
+  // the old permission may be cached in the TLB.
+  sfence_vma();
+  return 0;
+}
+
 int
 ismapped(pagetable_t pagetable, uint64 va)
 {

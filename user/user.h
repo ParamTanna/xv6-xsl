@@ -26,6 +26,8 @@ int pause(int);
 int uptime(void);
 int sync(void);
 int getreadcount(void);
+int mprotect(void *, int);
+int munprotect(void *, int);
 
 // ulib.c
 int stat(const char *, struct stat *);

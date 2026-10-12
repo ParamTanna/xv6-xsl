@@ -22,3 +22,5 @@
 #define SYS_close  21
 #define SYS_sync   22
 #define SYS_getreadcount 23
+#define SYS_mprotect     24
+#define SYS_munprotect   25
