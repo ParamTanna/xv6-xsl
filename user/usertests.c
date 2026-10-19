@@ -579,6 +579,11 @@ writetest(char *s)
   }
 }
 
+// XSL: with the doubly indirect block MAXFILE is 64 MB, more than
+// the whole 40 MB disk. so write enough blocks to go through the
+// direct, the indirect and two doubly indirect blocks instead.
+#define WRITEBIG_BLOCKS (NDIRECT + NINDIRECT + 512)
+
 void
 writebig(char *s)
 {
@@ -590,7 +595,7 @@ writebig(char *s)
     exit(1);
   }
 
-  for (i = 0; i < MAXFILE; i++) {
+  for (i = 0; i < WRITEBIG_BLOCKS; i++) {
     ((int *)buf)[0] = i;
     if (write(fd, buf, BSIZE) != BSIZE) {
       printf("%s: error: write big file failed i=%d\n", s, i);
@@ -610,7 +615,7 @@ writebig(char *s)
   for (;;) {
     i = read(fd, buf, BSIZE);
     if (i == 0) {
-      if (n != MAXFILE) {
+      if (n != WRITEBIG_BLOCKS) {
         printf("%s: read only %d blocks from big", s, n);
         exit(1);
       }

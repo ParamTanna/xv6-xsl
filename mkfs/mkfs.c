@@ -132,14 +132,12 @@ main(int argc, char *argv[])
   iappend(rootino, &de, sizeof(de));
 
   for (i = 2; i < argc; i++) {
-    // get rid of "user/"
-    char *shortname;
-    if (strncmp(argv[i], "user/", 5) == 0)
-      shortname = argv[i] + 5;
+    // keep only the file name: user/_cat -> _cat, linux/lua -> lua
+    char *shortname = strrchr(argv[i], '/');
+    if (shortname)
+      shortname++;
     else
       shortname = argv[i];
-
-    assert(index(shortname, '/') == 0);
 
     if ((fd = open(argv[i], 0)) < 0)
       die(argv[i]);
@@ -241,16 +239,21 @@ void
 balloc(int used)
 {
   uchar buf[BSIZE];
-  int i;
+  int i, b;
 
   printf("balloc: first %d blocks have been allocated\n", used);
-  assert(used < BPB);
-  bzero(buf, BSIZE);
-  for (i = 0; i < used; i++) {
-    buf[i / 8] = buf[i / 8] | (0x1 << (i % 8));
+  assert(used < FSSIZE);
+  // with big files the used blocks can fill more than one bitmap block.
+  for (b = 0; b < nbitmap; b++) {
+    bzero(buf, BSIZE);
+    for (i = 0; i < BPB; i++) {
+      if (b * BPB + i < used)
+        buf[i / 8] = buf[i / 8] | (0x1 << (i % 8));
+    }
+    wsect(sb.bmapstart + b, buf);
   }
-  printf("balloc: write bitmap block at sector %d\n", sb.bmapstart);
-  wsect(sb.bmapstart, buf);
+  printf("balloc: wrote %d bitmap blocks from sector %d\n", nbitmap,
+         sb.bmapstart);
 }
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
@@ -263,7 +266,8 @@ iappend(uint inum, void *xp, int n)
   struct dinode din;
   char buf[BSIZE];
   uint indirect[NINDIRECT];
-  uint x;
+  uint dind[NINDIRECT];
+  uint x, k;
 
   rinode(inum, &din);
   off = xint(din.size);
@@ -276,7 +280,7 @@ iappend(uint inum, void *xp, int n)
         din.addrs[fbn] = xint(freeblock++);
       }
       x = xint(din.addrs[fbn]);
-    } else {
+    } else if (fbn < NDIRECT + NINDIRECT) {
       if (xint(din.addrs[NDIRECT]) == 0) {
         din.addrs[NDIRECT] = xint(freeblock++);
       }
@@ -286,7 +290,26 @@ iappend(uint inum, void *xp, int n)
         wsect(xint(din.addrs[NDIRECT]), (char *)indirect);
       }
       x = xint(indirect[fbn - NDIRECT]);
+    } else {
+      // doubly indirect, same layout as bmap() in the kernel
+      k = fbn - NDIRECT - NINDIRECT;
+      if (xint(din.addrs[NDIRECT + 1]) == 0) {
+        din.addrs[NDIRECT + 1] = xint(freeblock++);
+      }
+      rsect(xint(din.addrs[NDIRECT + 1]), (char *)dind);
+      if (dind[k / NINDIRECT] == 0) {
+        dind[k / NINDIRECT] = xint(freeblock++);
+        wsect(xint(din.addrs[NDIRECT + 1]), (char *)dind);
+      }
+      rsect(xint(dind[k / NINDIRECT]), (char *)indirect);
+      if (indirect[k % NINDIRECT] == 0) {
+        indirect[k % NINDIRECT] = xint(freeblock++);
+        wsect(xint(dind[k / NINDIRECT]), (char *)indirect);
+      }
+      x = xint(indirect[k % NINDIRECT]);
     }
+    if (freeblock >= FSSIZE)
+      die("mkfs: disk image is full, raise FSSIZE");
     n1 = min(n, (fbn + 1) * BSIZE - off);
     rsect(x, buf);
     bcopy(p, buf + off - (fbn * BSIZE), n1);

@@ -154,6 +154,7 @@ UPROGS=\
 	$U/_readcount\
 	$U/_nulltest\
 	$U/_protect\
+	$U/_largefile\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
