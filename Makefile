@@ -156,8 +156,17 @@ UPROGS=\
 	$U/_protect\
 	$U/_largefile\
 
-fs.img: mkfs/mkfs README $(UPROGS)
-	mkfs/mkfs fs.img README $(UPROGS)
+# XSL: Linux test programs. they are built like any Linux program,
+# with Ubuntu's Linux cross compiler and glibc, linked statically,
+# and copied onto the xv6 disk without any change.
+LINUXCC = riscv64-linux-gnu-gcc
+LPROGS = linux/hello linux/args linux/files linux/memtest
+
+linux/%: linux/%.c
+	$(LINUXCC) -static -O2 -o $@ $<
+
+fs.img: mkfs/mkfs README $(UPROGS) $(LPROGS)
+	mkfs/mkfs fs.img README $(UPROGS) $(LPROGS)
 
 -include kernel/*.d user/*.d
 
@@ -167,7 +176,7 @@ clean:
 	$K/kernel fs.img \
 	mkfs/mkfs .gdbinit \
         $U/usys.S \
-	$(UPROGS)
+	$(UPROGS) $(LPROGS)
 
 # try to generate a unique GDB port
 GDBPORT = $(shell expr `id -u` % 5000 + 25000)

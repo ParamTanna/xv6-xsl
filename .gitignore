@@ -10,3 +10,7 @@ _*
 /user/usys.S
 .gdbinit
 TAGS
+
+# XSL: Linux test binaries (built from linux/*.c)
+linux/*
+!linux/*.c
