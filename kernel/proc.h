@@ -101,4 +101,11 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // XSL: Linux personality (see linux.h). set by exec, copied by fork.
+  int abi;         // ABI_XV6 or ABI_LINUX
+  int trace;       // print every Linux system call (the strace command)
+  uint64 brkbase;  // Linux: start of the heap, just after the program
+  uint64 brk;      // Linux: current end of the heap
+  uint64 mmapnext; // Linux: address the next mmap() will get
 };

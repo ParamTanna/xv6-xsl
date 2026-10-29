@@ -6,6 +6,7 @@
 #include "proc.h"
 #include "defs.h"
 #include "elf.h"
+#include "linux.h"
 
 static int loadseg(pde_t *, uint64, struct inode *, uint, uint);
 
@@ -23,12 +24,14 @@ flags2perm(int flags)
 
 //
 // the implementation of the exec() system call
+// XSL: envp is the environment for a Linux program (from a Linux
+// execve), or 0 when exec comes from xv6, which has no environment.
 //
 int
-kexec(char *path, char **argv)
+kexec(char *path, char **argv, char **envp)
 {
   char *s, *last;
-  int i, off;
+  int i, off, r;
   // start at PGSIZE: page 0 stays unmapped so null pointers trap.
   uint64 argc, sz = PGSIZE, sp, ustack[MAXARG], stackbase;
   struct elfhdr elf;
@@ -53,6 +56,13 @@ kexec(char *path, char **argv)
   // Is this really an ELF file?
   if (elf.magic != ELF_MAGIC)
     goto bad;
+
+  // XSL: a Linux program is loaded by linux_exec() instead.
+  // it takes over the locked ip and the open transaction.
+  if (linux_iself(ip, &elf)) {
+    r = linux_exec(path, ip, &elf, argv, envp);
+    return r;
+  }
 
   if ((pagetable = proc_pagetable(p)) == 0)
     goto bad;
@@ -138,6 +148,8 @@ kexec(char *path, char **argv)
   p->sz = sz;
   p->trapframe->epc = elf.entry; // initial program counter = ulib.c:start()
   p->trapframe->sp = sp;         // initial stack pointer
+  p->abi = ABI_XV6;              // XSL: an xv6 program again
+  p->brkbase = p->brk = p->mmapnext = 0;
   proc_freepagetable(oldpagetable, oldsz);
 
   return argc; // this ends up in a0, the first argument to main(argc, argv)

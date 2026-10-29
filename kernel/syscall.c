@@ -6,6 +6,7 @@
 #include "proc.h"
 #include "syscall.h"
 #include "defs.h"
+#include "linux.h"
 
 // Fetch the uint64 at addr from the current process.
 int
@@ -144,6 +145,13 @@ syscall(void)
 {
   int num;
   struct proc *p = myproc();
+
+  // XSL: a Linux program's system call numbers mean something
+  // else, so they go to the Linux table (linux_syscall.c).
+  if (p->abi == ABI_LINUX) {
+    linux_syscall();
+    return;
+  }
 
   num = p->trapframe->a7;
   if (num > 0 && num < NELEM(syscalls) && syscalls[num]) {

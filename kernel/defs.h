@@ -1,6 +1,7 @@
 // clang-format off
 struct buf;
 struct context;
+struct elfhdr;
 struct file;
 struct inode;
 struct pipe;
@@ -24,7 +25,7 @@ void            consoleintr(int);
 void            consputc(int);
 
 // exec.c
-int             kexec(char*, char**);
+int             kexec(char*, char**, char**);
 
 // file.c
 struct file*    filealloc(void);
@@ -171,6 +172,14 @@ int             copyinstr(pagetable_t, uint64, char *, uint64, uint64);
 int             ismapped(pagetable_t, uint64);
 uint64          vmfault(pagetable_t, uint64, uint64, int);
 int             uvmprotect(pagetable_t, uint64, uint64, int, int);
+
+// linux_exec.c (XSL)
+int             linux_iself(struct inode*, struct elfhdr*);
+int             linux_exec(char*, struct inode*, struct elfhdr*, char**, char**);
+
+// linux_syscall.c (XSL)
+void            linux_syscall(void);
+uint64          linux_random(void);
 
 // plic.c
 void            plicinit(void);

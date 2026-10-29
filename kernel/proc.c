@@ -167,6 +167,9 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->abi = 0;
+  p->trace = 0;
+  p->brkbase = p->brk = p->mmapnext = 0;
   p->state = UNUSED;
 }
 
@@ -288,6 +291,13 @@ kfork(void)
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
+
+  // XSL: the child runs the same kind of program
+  np->abi = p->abi;
+  np->trace = p->trace;
+  np->brkbase = p->brkbase;
+  np->brk = p->brk;
+  np->mmapnext = p->mmapnext;
 
   pid = np->pid;
 
@@ -529,7 +539,7 @@ forkret(void)
 
     // We can invoke kexec() now that file system is initialized.
     // Put the return value (argc) of kexec into a0.
-    p->trapframe->a0 = kexec("/init", (char *[]){"/init", 0});
+    p->trapframe->a0 = kexec("/init", (char *[]){"/init", 0}, 0);
     if (p->trapframe->a0 == -1) {
       panic("exec");
     }
