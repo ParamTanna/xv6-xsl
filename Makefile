@@ -31,6 +31,7 @@ OBJS = \
   $K/virtio_disk.o \
   $K/linux_exec.o \
   $K/linux_syscall.o \
+  $K/linux_mm.o \
   $K/linux_proc.o \
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-

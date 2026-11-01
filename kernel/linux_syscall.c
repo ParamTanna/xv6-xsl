@@ -10,6 +10,7 @@
 //
 // where the handlers are:
 //   linux_proc.c     processes (clone, execve, wait4), ids, signals
+//   linux_mm.c       memory (brk, mmap, munmap, mprotect)
 //   this file        system information (uname, prlimit64, getrandom)
 //
 
@@ -27,6 +28,11 @@ extern uint64 linux_exit(void);
 extern uint64 linux_getpid(void);
 extern uint64 linux_set_tid_address(void);
 extern uint64 linux_set_robust_list(void);
+// linux_mm.c
+extern uint64 linux_brk(void);
+extern uint64 linux_munmap(void);
+extern uint64 linux_mmap(void);
+extern uint64 linux_mprotect(void);
 
 // prlimit64(pid, resource, new, old): read resource limits.
 // xv6 has no limits, so we say "unlimited", except for the
@@ -122,6 +128,11 @@ static struct linux_syscall linux_syscalls[] = {
   [LSYS_set_tid_address] = {"set_tid_address", linux_set_tid_address},
   [LSYS_set_robust_list] = {"set_robust_list", linux_set_robust_list},
   [LSYS_getpid]          = {"getpid",          linux_getpid},
+  // memory (linux_mm.c)
+  [LSYS_brk]             = {"brk",             linux_brk},
+  [LSYS_munmap]          = {"munmap",          linux_munmap},
+  [LSYS_mmap]            = {"mmap",            linux_mmap},
+  [LSYS_mprotect]        = {"mprotect",        linux_mprotect},
   // system information (this file)
   [LSYS_uname]           = {"uname",           linux_uname},
   [LSYS_prlimit64]       = {"prlimit64",       linux_prlimit64},

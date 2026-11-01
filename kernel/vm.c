@@ -7,6 +7,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "fs.h"
+#include "linux.h"
+
+// a leaf page-table page maps 512 pages = 2 MB.
+#define LEAFSPAN (512 * PGSIZE)
 
 /*
  * the kernel's page table.
@@ -200,8 +204,12 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     panic("uvmunmap: not aligned");
 
   for (a = va; a < va + npages * PGSIZE; a += PGSIZE) {
-    if ((pte = walk(pagetable, a, 0)) == 0) // leaf page table entry allocated?
+    if ((pte = walk(pagetable, a, 0)) == 0) { // leaf page table entry allocated?
+      // no leaf page-table page: the whole 2 MB around a is empty,
+      // jump to its last page (Linux processes are mostly holes).
+      a = (a & ~(LEAFSPAN - 1)) + LEAFSPAN - PGSIZE;
       continue;
+    }
     if ((*pte & PTE_V) == 0) // has physical page been allocated?
       continue;
     if (do_free) {
@@ -304,8 +312,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   char *mem;
 
   for (i = 0; i < sz; i += PGSIZE) {
-    if ((pte = walk(old, i, 0)) == 0)
-      continue; // page table entry hasn't been allocated
+    if ((pte = walk(old, i, 0)) == 0) {
+      // page table entry hasn't been allocated: skip the empty 2 MB
+      i = (i & ~(LEAFSPAN - 1)) + LEAFSPAN - PGSIZE;
+      continue;
+    }
     if ((*pte & PTE_V) == 0)
       continue; // physical page hasn't been allocated
     pa = PTE2PA(*pte);
@@ -459,6 +470,7 @@ uint64
 vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
 {
   uint64 mem;
+  struct proc *p = myproc();
 
   if (va >= psz)
     return 0;
@@ -469,6 +481,11 @@ vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
   if (ismapped(pagetable, va)) {
     return 0;
   }
+  // XSL: a Linux process gets all its pages when they are created
+  // (exec, brk, mmap), so a missing page is a real segfault, not a
+  // lazy page. this matters because its address space has big holes.
+  if (p && p->abi == ABI_LINUX)
+    return 0;
   mem = (uint64)kalloc();
   if (mem == 0)
     return 0;
