@@ -9,6 +9,7 @@
 // number up in a second table that uses the Linux numbers.
 //
 // where the handlers are:
+//   sysfile.c        files, directories, pipes, fds
 //   linux_proc.c     processes (clone, execve, wait4), ids, signals
 //   linux_mm.c       memory (brk, mmap, munmap, mprotect)
 //   this file        system information (uname, prlimit64, getrandom)
@@ -23,6 +24,17 @@
 #include "defs.h"
 #include "linux.h"
 
+// sysfile.c
+extern uint64 linux_ioctl(void);
+extern uint64 linux_unlinkat(void);
+extern uint64 linux_openat(void);
+extern uint64 linux_close(void);
+extern uint64 linux_lseek(void);
+extern uint64 linux_read(void);
+extern uint64 linux_write(void);
+extern uint64 linux_readlinkat(void);
+extern uint64 linux_newfstatat(void);
+extern uint64 linux_fstat(void);
 // linux_proc.c
 extern uint64 linux_exit(void);
 extern uint64 linux_getpid(void);
@@ -122,6 +134,17 @@ struct linux_syscall {
 
 static struct linux_syscall linux_syscalls[] = {
   // clang-format off
+  // files, directories, pipes, fds (sysfile.c)
+  [LSYS_ioctl]           = {"ioctl",           linux_ioctl},
+  [LSYS_unlinkat]        = {"unlinkat",        linux_unlinkat},
+  [LSYS_openat]          = {"openat",          linux_openat},
+  [LSYS_close]           = {"close",           linux_close},
+  [LSYS_lseek]           = {"lseek",           linux_lseek},
+  [LSYS_read]            = {"read",            linux_read},
+  [LSYS_write]           = {"write",           linux_write},
+  [LSYS_readlinkat]      = {"readlinkat",      linux_readlinkat},
+  [LSYS_newfstatat]      = {"newfstatat",      linux_newfstatat},
+  [LSYS_fstat]           = {"fstat",           linux_fstat},
   // processes, ids, signals (linux_proc.c)
   [LSYS_exit]            = {"exit",            linux_exit},
   [LSYS_exit_group]      = {"exit_group",      linux_exit},

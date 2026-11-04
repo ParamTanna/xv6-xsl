@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "linux.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -209,28 +210,33 @@ isdirempty(struct inode *dp)
   return 1;
 }
 
-uint64
-sys_unlink(void)
+// remove the directory entry path. shared by xv6's unlink() and
+// Linux's unlinkat(), so it returns a Linux error code (-ENOENT ...).
+// isdir: 1 = path must be a directory (Linux rmdir),
+//        0 = path must not be a directory (Linux unlink),
+//       -1 = either (xv6 unlink).
+static int
+unlinkpath(char *path, int isdir)
 {
   struct inode *ip, *dp;
   struct dirent de;
-  char name[DIRSIZ], path[MAXPATH];
+  char name[DIRSIZ];
   uint off;
-
-  if (argstr(0, path, MAXPATH) < 0)
-    return -1;
+  int err = -ENOENT;
 
   begin_op();
   if ((dp = nameiparent(path, name)) == 0) {
     end_op();
-    return -1;
+    return -ENOENT;
   }
 
   ilock(dp);
 
   // Cannot unlink "." or "..".
-  if (namecmp(name, ".") == 0 || namecmp(name, "..") == 0)
+  if (namecmp(name, ".") == 0 || namecmp(name, "..") == 0) {
+    err = -EINVAL;
     goto bad;
+  }
 
   if ((ip = dirlookup(dp, name, &off)) == 0)
     goto bad;
@@ -238,7 +244,15 @@ sys_unlink(void)
 
   if (ip->nlink < 1)
     panic("unlink: nlink < 1");
-  if (ip->type == T_DIR && !isdirempty(ip)) {
+  if (isdir == 1 && ip->type != T_DIR)
+    err = -ENOTDIR;
+  else if (isdir == 0 && ip->type == T_DIR)
+    err = -EISDIR;
+  else if (ip->type == T_DIR && !isdirempty(ip))
+    err = -ENOTEMPTY;
+  else
+    err = 0;
+  if (err < 0) {
     iunlockput(ip);
     goto bad;
   }
@@ -263,7 +277,19 @@ sys_unlink(void)
 bad:
   iunlockput(dp);
   end_op();
-  return -1;
+  return err;
+}
+
+uint64
+sys_unlink(void)
+{
+  char path[MAXPATH];
+
+  if (argstr(0, path, MAXPATH) < 0)
+    return -1;
+  if (unlinkpath(path, -1) < 0)
+    return -1;
+  return 0;
 }
 
 static struct inode *
@@ -538,4 +564,317 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+//
+// XSL: file system calls for Linux programs.
+// they work on the same xv6 files, inodes and file descriptors as
+// the calls above, but take Linux arguments and flag values, and
+// return -errno on failure instead of -1.
+//
+
+// xv6 returns -1 for any failure. turn that into a Linux -e.
+static uint64
+lerr(uint64 r, int e)
+{
+  if ((int64)r < 0)
+    return -e;
+  return r;
+}
+
+// read, write and close take the same arguments on Linux and xv6,
+// so after checking the fd we can call the xv6 versions.
+uint64
+linux_read(void)
+{
+  struct file *f;
+
+  if (argfd(0, 0, &f) < 0 || f->readable == 0)
+    return -EBADF;
+  return lerr(sys_read(), EIO);
+}
+
+uint64
+linux_write(void)
+{
+  struct file *f;
+
+  if (argfd(0, 0, &f) < 0 || f->writable == 0)
+    return -EBADF;
+  return lerr(sys_write(), EIO);
+}
+
+uint64
+linux_close(void)
+{
+  return lerr(sys_close(), EBADF);
+}
+
+// openat(dirfd, path, flags, mode). like sys_open(), but Linux
+// uses different bits for the same flags (O_CREAT is 0x40 on Linux,
+// O_CREATE is 0x200 on xv6) and wants a precise error code.
+uint64
+linux_openat(void)
+{
+  char path[MAXPATH];
+  int dirfd, flags, acc, fd;
+  struct file *f;
+  struct inode *ip;
+
+  argint(0, &dirfd);
+  argint(2, &flags);
+  if (argstr(1, path, MAXPATH) < 0)
+    return -EFAULT;
+  // only paths relative to the current directory, or absolute ones
+  if (dirfd != AT_FDCWD && path[0] != '/')
+    return -EINVAL;
+  acc = flags & L_O_ACCMODE;
+
+  begin_op();
+  if (flags & L_O_CREAT) {
+    // O_EXCL: fail if the file is already there
+    if ((flags & L_O_EXCL) && (ip = namei(path)) != 0) {
+      iput(ip);
+      end_op();
+      return -EEXIST;
+    }
+    if ((ip = create(path, T_FILE, 0, 0)) == 0) {
+      end_op();
+      return -ENOENT; // no such directory, or it is a directory
+    }
+  } else {
+    if ((ip = namei(path)) == 0) {
+      end_op();
+      return -ENOENT;
+    }
+    ilock(ip);
+  }
+
+  if (ip->type == T_DIR && acc != 0) {
+    iunlockput(ip);
+    end_op();
+    return -EISDIR; // directories can only be opened for reading
+  }
+  if ((flags & L_O_DIRECTORY) && ip->type != T_DIR) {
+    iunlockput(ip);
+    end_op();
+    return -ENOTDIR;
+  }
+  if (ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)) {
+    iunlockput(ip);
+    end_op();
+    return -EIO;
+  }
+
+  if ((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0) {
+    if (f)
+      fileclose(f);
+    iunlockput(ip);
+    end_op();
+    return f ? -EMFILE : -ENFILE;
+  }
+
+  if (ip->type == T_DEVICE) {
+    f->type = FD_DEVICE;
+    f->major = ip->major;
+  } else {
+    f->type = FD_INODE;
+    f->off = 0;
+  }
+  f->ip = ip;
+  f->readable = (acc != L_O_WRONLY);
+  f->writable = (acc == L_O_WRONLY || acc == L_O_RDWR);
+
+  if ((flags & L_O_TRUNC) && ip->type == T_FILE && f->writable)
+    itrunc(ip);
+
+  iunlock(ip);
+  end_op();
+  return fd;
+}
+
+// lseek(fd, offset, whence). xv6 has no lseek, but each open file
+// already has an offset (f->off) that read and write use.
+uint64
+linux_lseek(void)
+{
+  struct file *f;
+  int64 off, base;
+  int whence;
+
+  argaddr(1, (uint64 *)&off);
+  argint(2, &whence);
+  if (argfd(0, 0, &f) < 0)
+    return -EBADF;
+  if (f->type != FD_INODE)
+    return -ESPIPE; // the console and pipes can't seek
+
+  if (whence == SEEK_SET) {
+    base = 0;
+  } else if (whence == SEEK_CUR) {
+    base = f->off;
+  } else if (whence == SEEK_END) {
+    ilock(f->ip);
+    base = f->ip->size;
+    iunlock(f->ip);
+  } else {
+    return -EINVAL;
+  }
+  if (base + off < 0 || base + off > MAXFILE * BSIZE)
+    return -EINVAL;
+  f->off = base + off;
+  return f->off;
+}
+
+// fill a Linux struct stat from an xv6 inode. caller holds ip->lock.
+static void
+linux_stati(struct inode *ip, struct linux_stat *st)
+{
+  memset(st, 0, sizeof(*st));
+  st->st_dev = ip->dev;
+  st->st_ino = ip->inum;
+  st->st_nlink = ip->nlink;
+  st->st_size = ip->size;
+  st->st_blksize = BSIZE;
+  st->st_blocks = (ip->size + 511) / 512; // in 512-byte units
+  // xv6 has no permissions, so everything is readable and writable
+  if (ip->type == T_DIR) {
+    st->st_mode = L_S_IFDIR | 0755;
+  } else if (ip->type == T_DEVICE) {
+    st->st_mode = L_S_IFCHR | 0666;
+    st->st_rdev = (ip->major << 8) | ip->minor;
+  } else {
+    st->st_mode = L_S_IFREG | 0755;
+  }
+}
+
+// copy the Linux stat of open file f to user address addr.
+static uint64
+linux_fdstat(struct file *f, uint64 addr)
+{
+  struct linux_stat st;
+  struct proc *p = myproc();
+
+  if (f->type == FD_PIPE) {
+    memset(&st, 0, sizeof(st));
+    st.st_mode = L_S_IFIFO | 0600;
+  } else {
+    ilock(f->ip);
+    linux_stati(f->ip, &st);
+    iunlock(f->ip);
+  }
+  if (copyout(p->pagetable, p->sz, addr, (char *)&st, sizeof(st)) < 0)
+    return -EFAULT;
+  return 0;
+}
+
+// fstat(fd, statbuf)
+uint64
+linux_fstat(void)
+{
+  struct file *f;
+  uint64 addr;
+
+  argaddr(1, &addr);
+  if (argfd(0, 0, &f) < 0)
+    return -EBADF;
+  return linux_fdstat(f, addr);
+}
+
+// newfstatat(dirfd, path, statbuf, flags): stat by name.
+// glibc's stat() uses this.
+uint64
+linux_newfstatat(void)
+{
+  char path[MAXPATH];
+  int dirfd, flags;
+  uint64 addr;
+  struct file *f;
+  struct inode *ip;
+  struct linux_stat st;
+  struct proc *p = myproc();
+
+  argint(0, &dirfd);
+  argaddr(2, &addr);
+  argint(3, &flags);
+  if (argstr(1, path, MAXPATH) < 0)
+    return -EFAULT;
+
+  // AT_EMPTY_PATH with path "": stat the file dirfd itself
+  if (path[0] == 0 && (flags & AT_EMPTY_PATH)) {
+    if (argfd(0, 0, &f) < 0)
+      return -EBADF;
+    return linux_fdstat(f, addr);
+  }
+  if (dirfd != AT_FDCWD && path[0] != '/')
+    return -EINVAL;
+
+  begin_op();
+  if ((ip = namei(path)) == 0) {
+    end_op();
+    return -ENOENT;
+  }
+  ilock(ip);
+  linux_stati(ip, &st);
+  iunlockput(ip);
+  end_op();
+
+  if (copyout(p->pagetable, p->sz, addr, (char *)&st, sizeof(st)) < 0)
+    return -EFAULT;
+  return 0;
+}
+
+// unlinkat(dirfd, path, flags): unlink, or rmdir if AT_REMOVEDIR.
+uint64
+linux_unlinkat(void)
+{
+  char path[MAXPATH];
+  int dirfd, flags;
+
+  argint(0, &dirfd);
+  argint(2, &flags);
+  if (argstr(1, path, MAXPATH) < 0)
+    return -EFAULT;
+  if (dirfd != AT_FDCWD && path[0] != '/')
+    return -EINVAL;
+  return unlinkpath(path, (flags & AT_REMOVEDIR) ? 1 : 0);
+}
+
+// ioctl(fd, request, arg). only on the console:
+//   TCGETS: glibc's isatty() asks for the terminal settings. if that
+//     works, stdout is a terminal and printf flushes after every line,
+//     otherwise it waits for a full buffer.
+// for any other file the answer is "not a terminal".
+uint64
+linux_ioctl(void)
+{
+  struct file *f;
+  uint64 req, arg;
+  struct linux_termios t;
+  struct proc *p = myproc();
+
+  argaddr(1, &req);
+  argaddr(2, &arg);
+  if (argfd(0, 0, &f) < 0)
+    return -EBADF;
+  if (f->type != FD_DEVICE || f->major != CONSOLE)
+    return -ENOTTY;
+
+  if (req == TCGETS) {
+    // xv6's console works a line at a time and echoes what you type
+    memset(&t, 0, sizeof(t));
+    t.c_lflag = L_ICANON | L_ECHO;
+    if (copyout(p->pagetable, p->sz, arg, (char *)&t, sizeof(t)) < 0)
+      return -EFAULT;
+    return 0;
+  }
+  return -ENOTTY;
+}
+
+// readlinkat: xv6 has no symbolic links (and no /proc, which is what
+// glibc asks about at startup), so there is never a link to read.
+uint64
+linux_readlinkat(void)
+{
+  return -ENOENT;
 }
