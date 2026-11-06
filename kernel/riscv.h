@@ -46,6 +46,7 @@ w_mepc(uint64 x)
 #define SSTATUS_UPIE (1L << 4) // User Previous Interrupt Enable
 #define SSTATUS_SIE  (1L << 1) // Supervisor Interrupt Enable
 #define SSTATUS_UIE  (1L << 0) // User Interrupt Enable
+#define SSTATUS_FS   (3L << 13) // FPU state: 0 = off (FP instructions trap)
 
 static inline uint64
 r_sstatus()

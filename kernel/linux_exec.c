@@ -301,6 +301,8 @@ linux_exec(char *path, struct inode *ip, struct elfhdr *elf, char **argv,
   memset(p->trapframe, 0, sizeof(*p->trapframe));
   p->trapframe->epc = elf->entry;
   p->trapframe->sp = sp;
+  memset(p->fpregs, 0, sizeof(p->fpregs)); // FP registers too
+  fprestore(p->fpregs);
   proc_freepagetable(oldpagetable, oldsz);
   return 0;
 

@@ -27,6 +27,12 @@ void
 trapinithart(void)
 {
   w_stvec((uint64)kernelvec);
+
+  // XSL: switch the FPU on. xv6 programs never use it, but Linux
+  // programs (glibc) do, and with FS = 0 every FP instruction is an
+  // illegal instruction trap. the registers are saved per process
+  // in sched(), see fp.S.
+  w_sstatus(r_sstatus() | SSTATUS_FS);
 }
 
 //

@@ -292,7 +292,9 @@ kfork(void)
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
-  // XSL: the child runs the same kind of program
+  // XSL: the child runs the same kind of program, and gets a copy
+  // of our FP registers (still live in the cpu, we are running).
+  fpsave(np->fpregs);
   np->abi = p->abi;
   np->trace = p->trace;
   np->brkbase = p->brkbase;
@@ -502,7 +504,11 @@ sched(void)
     panic("sched interruptible");
 
   intena = mycpu()->intena;
+  // XSL: the next process will use the FP registers too,
+  // so keep our values until we run again.
+  fpsave(p->fpregs);
   swtch(&p->context, &mycpu()->context);
+  fprestore(p->fpregs);
   mycpu()->intena = intena;
 }
 
@@ -544,6 +550,9 @@ forkret(void)
       panic("exec");
     }
   }
+
+  // XSL: a new process starts with the FP registers fork gave it.
+  fprestore(p->fpregs);
 
   // return to user space, mimicing usertrap()'s return.
   prepare_return();

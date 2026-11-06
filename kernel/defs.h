@@ -108,6 +108,10 @@ void            procdump(void);
 // swtch.S
 void            swtch(struct context*, struct context*);
 
+// fp.S (XSL)
+void            fpsave(uint64*);
+void            fprestore(uint64*);
+
 // spinlock.c
 void            acquire(struct spinlock*);
 int             holding(struct spinlock*);
