@@ -28,6 +28,7 @@ int sync(void);
 int getreadcount(void);
 int mprotect(void *, int);
 int munprotect(void *, int);
+int trace(int);
 
 // ulib.c
 int stat(const char *, struct stat *);

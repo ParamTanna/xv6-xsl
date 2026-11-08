@@ -46,3 +46,4 @@ entry("sync");
 entry("getreadcount");
 entry("mprotect");
 entry("munprotect");
+entry("trace");

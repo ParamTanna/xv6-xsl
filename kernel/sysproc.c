@@ -142,3 +142,14 @@ sys_munprotect(void)
   return protect(1);
 }
 
+// XSL: trace(1) turns on printing of every Linux system call this
+// process makes. it is kept across exec and fork. used by strace.
+uint64
+sys_trace(void)
+{
+  int on;
+
+  argint(0, &on);
+  myproc()->trace = on;
+  return 0;
+}

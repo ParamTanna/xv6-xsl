@@ -107,6 +107,7 @@ extern uint64 sys_sync(void);
 extern uint64 sys_getreadcount(void);
 extern uint64 sys_mprotect(void);
 extern uint64 sys_munprotect(void);
+extern uint64 sys_trace(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -137,6 +138,7 @@ static uint64 (*syscalls[])(void) = {
   [SYS_getreadcount] = sys_getreadcount,
   [SYS_mprotect]     = sys_mprotect,
   [SYS_munprotect]   = sys_munprotect,
+  [SYS_trace]        = sys_trace,
   // clang-format on
 };
 

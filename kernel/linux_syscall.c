@@ -169,7 +169,11 @@ linux_syscall(void)
 {
   struct proc *p = myproc();
   int num = p->trapframe->a7;
+  uint64 a0 = p->trapframe->a0; // saved for the trace,
+  uint64 a1 = p->trapframe->a1; // a0 gets overwritten
+  uint64 a2 = p->trapframe->a2;
   uint64 ret;
+  char *name;
 
   if (num < 0 || num >= NELEM(linux_syscalls) || linux_syscalls[num].fn == 0) {
     // not implemented: say so, so missing pieces are easy to find
@@ -179,8 +183,18 @@ linux_syscall(void)
     return;
   }
 
+  name = linux_syscalls[num].name;
+  if (p->trace && (num == LSYS_exit || num == LSYS_exit_group))
+    printk("[%d] %s(%ld)\n", p->pid, name, a0); // print now, never returns
 
   ret = linux_syscalls[num].fn();
 
+  if (p->trace) {
+    // like strace: name, first three arguments, result
+    if ((int64)ret >= -4096 && (int64)ret < 4096)
+      printk("[%d] %s(0x%lx, 0x%lx, 0x%lx) = %ld\n", p->pid, name, a0, a1, a2, ret);
+    else
+      printk("[%d] %s(0x%lx, 0x%lx, 0x%lx) = 0x%lx\n", p->pid, name, a0, a1, a2, ret);
+  }
   p->trapframe->a0 = ret;
 }

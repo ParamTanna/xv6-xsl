@@ -24,3 +24,4 @@
 #define SYS_getreadcount 23
 #define SYS_mprotect     24
 #define SYS_munprotect   25
+#define SYS_trace        26

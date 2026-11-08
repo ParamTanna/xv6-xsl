@@ -160,6 +160,7 @@ UPROGS=\
 	$U/_nulltest\
 	$U/_protect\
 	$U/_largefile\
+	$U/_strace\
 
 # XSL: Linux test programs. they are built like any Linux program,
 # with Ubuntu's Linux cross compiler and glibc, linked statically,
