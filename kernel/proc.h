@@ -109,4 +109,6 @@ struct proc {
   uint64 brk;      // Linux: current end of the heap
   uint64 mmapnext; // Linux: address the next mmap() will get
   uint64 fpregs[33]; // f0-f31 and fcsr while not running (fp.S)
+  char cloexec[NOFILE]; // close this fd on exec (Linux O_CLOEXEC)
+  int termsig;     // signal that killed us, for a Linux parent's wait4()
 };

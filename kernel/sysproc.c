@@ -6,6 +6,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "vm.h"
+#include "linux.h"
 
 uint64
 sys_exit(void)
@@ -25,7 +26,7 @@ sys_getpid(void)
 uint64
 sys_fork(void)
 {
-  return kfork();
+  return kfork(0);
 }
 
 uint64
@@ -95,7 +96,7 @@ sys_kill(void)
   int pid;
 
   argint(0, &pid);
-  return kkill(pid);
+  return kkill(pid, SIGKILL);
 }
 
 // return how many clock tick interrupts have occurred

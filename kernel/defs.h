@@ -82,12 +82,13 @@ void            printkinit(void);
 // proc.c
 int             cpuid(void);
 void            kexit(int);
-int             kfork(void);
+int             kfork(uint64);
+int             kwait4(int, uint64, int);
 int             growproc(int);
 void            proc_mapstacks(pagetable_t);
 pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
-int             kkill(int);
+int             kkill(int, int);
 int             killed(struct proc*);
 void            setkilled(struct proc*);
 struct cpu*     mycpu(void);

@@ -22,6 +22,24 @@ flags2perm(int flags)
   return perm;
 }
 
+// XSL: after a successful exec, close the file descriptors that are
+// marked close-on-exec. only Linux programs can set that flag
+// (O_CLOEXEC, FD_CLOEXEC); the shell uses it so that fds it keeps for
+// itself are not inherited by the programs it starts.
+static void
+closeonexec(struct proc *p)
+{
+  int fd;
+
+  for (fd = 0; fd < NOFILE; fd++) {
+    if (p->cloexec[fd] && p->ofile[fd]) {
+      fileclose(p->ofile[fd]);
+      p->ofile[fd] = 0;
+    }
+    p->cloexec[fd] = 0;
+  }
+}
+
 //
 // the implementation of the exec() system call
 // XSL: envp is the environment for a Linux program (from a Linux
@@ -61,6 +79,8 @@ kexec(char *path, char **argv, char **envp)
   // it takes over the locked ip and the open transaction.
   if (linux_iself(ip, &elf)) {
     r = linux_exec(path, ip, &elf, argv, envp);
+    if (r == 0)
+      closeonexec(p);
     return r;
   }
 
@@ -151,6 +171,7 @@ kexec(char *path, char **argv, char **envp)
   p->abi = ABI_XV6;              // XSL: an xv6 program again
   p->brkbase = p->brk = p->mmapnext = 0;
   proc_freepagetable(oldpagetable, oldsz);
+  closeonexec(p);
 
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 

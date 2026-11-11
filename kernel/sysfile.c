@@ -46,6 +46,7 @@ fdalloc(struct file *f)
   for (fd = 0; fd < NOFILE; fd++) {
     if (p->ofile[fd] == 0) {
       p->ofile[fd] = f;
+      p->cloexec[fd] = 0; // XSL: a new fd is never close-on-exec
       return fd;
     }
   }

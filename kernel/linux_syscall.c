@@ -37,9 +37,26 @@ extern uint64 linux_newfstatat(void);
 extern uint64 linux_fstat(void);
 // linux_proc.c
 extern uint64 linux_exit(void);
+extern uint64 linux_clone(void);
+extern uint64 linux_execve(void);
+extern uint64 linux_wait4(void);
 extern uint64 linux_getpid(void);
+extern uint64 linux_gettid(void);
+extern uint64 linux_getppid(void);
 extern uint64 linux_set_tid_address(void);
 extern uint64 linux_set_robust_list(void);
+extern uint64 linux_getuid(void);
+extern uint64 linux_setuid(void);
+extern uint64 linux_getpgid(void);
+extern uint64 linux_setpgid(void);
+extern uint64 linux_umask(void);
+extern uint64 linux_sched_yield(void);
+extern uint64 linux_prctl(void);
+extern uint64 linux_kill(void);
+extern uint64 linux_tkill(void);
+extern uint64 linux_tgkill(void);
+extern uint64 linux_rt_sigaction(void);
+extern uint64 linux_rt_sigprocmask(void);
 // linux_mm.c
 extern uint64 linux_brk(void);
 extern uint64 linux_munmap(void);
@@ -150,7 +167,30 @@ static struct linux_syscall linux_syscalls[] = {
   [LSYS_exit_group]      = {"exit_group",      linux_exit},
   [LSYS_set_tid_address] = {"set_tid_address", linux_set_tid_address},
   [LSYS_set_robust_list] = {"set_robust_list", linux_set_robust_list},
+  [LSYS_sched_yield]     = {"sched_yield",     linux_sched_yield},
+  [LSYS_kill]            = {"kill",            linux_kill},
+  [LSYS_tkill]           = {"tkill",           linux_tkill},
+  [LSYS_tgkill]          = {"tgkill",          linux_tgkill},
+  [LSYS_rt_sigaction]    = {"rt_sigaction",    linux_rt_sigaction},
+  [LSYS_rt_sigprocmask]  = {"rt_sigprocmask",  linux_rt_sigprocmask},
+  [LSYS_setgid]          = {"setgid",          linux_setuid},
+  [LSYS_setuid]          = {"setuid",          linux_setuid},
+  [LSYS_setpgid]         = {"setpgid",         linux_setpgid},
+  [LSYS_getpgid]         = {"getpgid",         linux_getpgid},
+  [LSYS_getsid]          = {"getsid",          linux_getpgid},
+  [LSYS_setsid]          = {"setsid",          linux_getpgid},
+  [LSYS_umask]           = {"umask",           linux_umask},
+  [LSYS_prctl]           = {"prctl",           linux_prctl},
   [LSYS_getpid]          = {"getpid",          linux_getpid},
+  [LSYS_getppid]         = {"getppid",         linux_getppid},
+  [LSYS_getuid]          = {"getuid",          linux_getuid},
+  [LSYS_geteuid]         = {"geteuid",         linux_getuid},
+  [LSYS_getgid]          = {"getgid",          linux_getuid},
+  [LSYS_getegid]         = {"getegid",         linux_getuid},
+  [LSYS_gettid]          = {"gettid",          linux_gettid},
+  [LSYS_clone]           = {"clone",           linux_clone},
+  [LSYS_execve]          = {"execve",          linux_execve},
+  [LSYS_wait4]           = {"wait4",           linux_wait4},
   // memory (linux_mm.c)
   [LSYS_brk]             = {"brk",             linux_brk},
   [LSYS_munmap]          = {"munmap",          linux_munmap},

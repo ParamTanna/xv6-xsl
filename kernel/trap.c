@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "linux.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -81,6 +82,9 @@ usertrap(void)
   } else {
     printk("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
     printk("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
+    // XSL: remember the reason, so a Linux parent's wait4() can say
+    // "killed by SIGILL" (bad instruction) or SIGSEGV (bad memory access)
+    p->termsig = (r_scause() == 2) ? SIGILL : SIGSEGV;
     setkilled(p);
   }
 

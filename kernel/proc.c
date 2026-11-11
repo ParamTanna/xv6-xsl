@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "linux.h"
 
 struct cpu cpus[NCPU];
 
@@ -170,6 +171,8 @@ freeproc(struct proc *p)
   p->abi = 0;
   p->trace = 0;
   p->brkbase = p->brk = p->mmapnext = 0;
+  memset(p->cloexec, 0, sizeof(p->cloexec));
+  p->termsig = 0;
   p->state = UNUSED;
 }
 
@@ -258,8 +261,11 @@ growproc(int n)
 
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
+// XSL: if ctid is not 0, the child's pid is also written to address
+// ctid in the child's memory before it runs (Linux CLONE_CHILD_SETTID,
+// which glibc's fork uses to keep the thread id in its TLS).
 int
-kfork(void)
+kfork(uint64 ctid)
 {
   int i, pid;
   struct proc *np;
@@ -300,6 +306,9 @@ kfork(void)
   np->brkbase = p->brkbase;
   np->brk = p->brk;
   np->mmapnext = p->mmapnext;
+  memmove(np->cloexec, p->cloexec, sizeof(p->cloexec));
+  if (ctid != 0) // a bad address is ignored, Linux does the same
+    copyout(np->pagetable, np->sz, ctid, (char *)&np->pid, sizeof(int));
 
   pid = np->pid;
 
@@ -424,6 +433,71 @@ kwait(uint64 addr)
 
     // Wait for a child to exit.
     sleep_prepare(p); //DOC: wait-sleep
+    release(&wait_lock);
+    sleep();
+    acquire(&wait_lock);
+  }
+}
+
+// XSL: wait4(pid, status, options) for Linux programs.
+// works like kwait() above, with three differences:
+//   - pid > 0 waits for that one child, pid -1 (or 0) for any child
+//   - WNOHANG: if no child has exited yet, return 0 at once
+//   - the status is encoded the Linux way: the exit code in bits
+//     8 to 15, or the number of the signal that killed the child
+//     in bits 0 to 6 (that is what WIFEXITED/WEXITSTATUS decode)
+// returns the child's pid, or -errno.
+int
+kwait4(int pid, uint64 addr, int options)
+{
+  struct proc *pp;
+  int havekids, cpid, status;
+  struct proc *p = myproc();
+
+  acquire(&wait_lock);
+
+  for (;;) {
+    havekids = 0;
+    for (pp = proc; pp < &proc[NPROC]; pp++) {
+      if (pp->parent != p || (pid > 0 && pp->pid != pid))
+        continue;
+      acquire(&pp->lock);
+      havekids = 1;
+      if (pp->state == ZOMBIE) {
+        cpid = pp->pid;
+        if (pp->termsig)
+          status = pp->termsig & 0x7f; // killed by a signal
+        else
+          status = (pp->xstate & 0xff) << 8; // exit(code)
+        if (addr != 0 &&
+            copyout(p->pagetable, p->sz, addr, (char *)&status, sizeof(status)) < 0) {
+          release(&pp->lock);
+          release(&wait_lock);
+          return -EFAULT;
+        }
+        pp->parent = 0;
+        freeproc(pp);
+        release(&pp->lock);
+        release(&wait_lock);
+        return cpid;
+      }
+      release(&pp->lock);
+    }
+
+    if (!havekids) {
+      release(&wait_lock);
+      return -ECHILD;
+    }
+    if (options & WNOHANG) {
+      release(&wait_lock);
+      return 0;
+    }
+    if (killed(p)) {
+      release(&wait_lock);
+      return -EINTR;
+    }
+
+    sleep_prepare(p);
     release(&wait_lock);
     sleep();
     acquire(&wait_lock);
@@ -616,8 +690,10 @@ wakeup(void *chan)
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
 // to user space (see usertrap() in trap.c).
+// XSL: sig is the signal number a Linux parent will see in wait4()
+// (xv6's kill uses SIGKILL). sig 0 only checks that pid exists.
 int
-kkill(int pid)
+kkill(int pid, int sig)
 {
   struct proc *p;
 
@@ -627,8 +703,11 @@ kkill(int pid)
   for (p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
     if (p->pid == pid) {
-      p->killed = 1;
-      if (p->state == SLEEPING) {
+      if (sig != 0) {
+        p->killed = 1;
+        p->termsig = sig;
+      }
+      if (sig != 0 && p->state == SLEEPING) {
         // Wake process from sleep().
         p->state = RUNNABLE;
       }
