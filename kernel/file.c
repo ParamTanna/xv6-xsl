@@ -71,6 +71,7 @@ fileclose(struct file *f)
   ff = *f;
   f->ref = 0;
   f->type = FD_NONE;
+  f->append = 0;
   release(&ftable.lock);
 
   if (ff.type == FD_PIPE) {
@@ -160,6 +161,8 @@ filewrite(struct file *f, uint64 addr, int n)
 
       begin_op();
       ilock(f->ip);
+      if (f->append) // XSL: O_APPEND, decided under the inode lock
+        f->off = f->ip->size;
       if ((r = writei(f->ip, 1, addr + i, f->off, n1)) > 0)
         f->off += r;
       iunlock(f->ip);

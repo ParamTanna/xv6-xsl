@@ -7,6 +7,7 @@ struct file {
   struct inode *ip;  // FD_INODE and FD_DEVICE
   uint off;          // FD_INODE
   short major;       // FD_DEVICE
+  char append;       // XSL: Linux O_APPEND, every write goes to the end
 };
 
 #define major(dev)  ((dev) >> 16 & 0xFFFF)

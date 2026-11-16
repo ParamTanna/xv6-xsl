@@ -25,13 +25,24 @@
 #include "linux.h"
 
 // sysfile.c
+extern uint64 linux_getcwd(void);
+extern uint64 linux_dup(void);
+extern uint64 linux_dup3(void);
+extern uint64 linux_fcntl(void);
 extern uint64 linux_ioctl(void);
+extern uint64 linux_mkdirat(void);
 extern uint64 linux_unlinkat(void);
+extern uint64 linux_faccessat(void);
+extern uint64 linux_chdir(void);
 extern uint64 linux_openat(void);
 extern uint64 linux_close(void);
+extern uint64 linux_pipe2(void);
+extern uint64 linux_getdents64(void);
 extern uint64 linux_lseek(void);
 extern uint64 linux_read(void);
 extern uint64 linux_write(void);
+extern uint64 linux_readv(void);
+extern uint64 linux_writev(void);
 extern uint64 linux_readlinkat(void);
 extern uint64 linux_newfstatat(void);
 extern uint64 linux_fstat(void);
@@ -152,16 +163,28 @@ struct linux_syscall {
 static struct linux_syscall linux_syscalls[] = {
   // clang-format off
   // files, directories, pipes, fds (sysfile.c)
+  [LSYS_getcwd]          = {"getcwd",          linux_getcwd},
+  [LSYS_dup]             = {"dup",             linux_dup},
+  [LSYS_dup3]            = {"dup3",            linux_dup3},
+  [LSYS_fcntl]           = {"fcntl",           linux_fcntl},
   [LSYS_ioctl]           = {"ioctl",           linux_ioctl},
+  [LSYS_mkdirat]         = {"mkdirat",         linux_mkdirat},
   [LSYS_unlinkat]        = {"unlinkat",        linux_unlinkat},
+  [LSYS_faccessat]       = {"faccessat",       linux_faccessat},
+  [LSYS_chdir]           = {"chdir",           linux_chdir},
   [LSYS_openat]          = {"openat",          linux_openat},
   [LSYS_close]           = {"close",           linux_close},
+  [LSYS_pipe2]           = {"pipe2",           linux_pipe2},
+  [LSYS_getdents64]      = {"getdents64",      linux_getdents64},
   [LSYS_lseek]           = {"lseek",           linux_lseek},
   [LSYS_read]            = {"read",            linux_read},
   [LSYS_write]           = {"write",           linux_write},
+  [LSYS_readv]           = {"readv",           linux_readv},
+  [LSYS_writev]          = {"writev",          linux_writev},
   [LSYS_readlinkat]      = {"readlinkat",      linux_readlinkat},
   [LSYS_newfstatat]      = {"newfstatat",      linux_newfstatat},
   [LSYS_fstat]           = {"fstat",           linux_fstat},
+  [LSYS_faccessat2]      = {"faccessat2",      linux_faccessat},
   // processes, ids, signals (linux_proc.c)
   [LSYS_exit]            = {"exit",            linux_exit},
   [LSYS_exit_group]      = {"exit_group",      linux_exit},

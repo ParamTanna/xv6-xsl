@@ -685,6 +685,8 @@ linux_openat(void)
   f->ip = ip;
   f->readable = (acc != L_O_WRONLY);
   f->writable = (acc == L_O_WRONLY || acc == L_O_RDWR);
+  f->append = (flags & L_O_APPEND) != 0;
+  myproc()->cloexec[fd] = (flags & L_O_CLOEXEC) != 0;
 
   if ((flags & L_O_TRUNC) && ip->type == T_FILE && f->writable)
     itrunc(ip);
@@ -841,10 +843,11 @@ linux_unlinkat(void)
   return unlinkpath(path, (flags & AT_REMOVEDIR) ? 1 : 0);
 }
 
-// ioctl(fd, request, arg). only on the console:
+// ioctl(fd, request, arg). only two requests, and only on the console:
 //   TCGETS: glibc's isatty() asks for the terminal settings. if that
 //     works, stdout is a terminal and printf flushes after every line,
 //     otherwise it waits for a full buffer.
+//   TIOCGWINSZ: the window size; ls uses it to lay out its columns.
 // for any other file the answer is "not a terminal".
 uint64
 linux_ioctl(void)
@@ -852,6 +855,7 @@ linux_ioctl(void)
   struct file *f;
   uint64 req, arg;
   struct linux_termios t;
+  struct linux_winsize w;
   struct proc *p = myproc();
 
   argaddr(1, &req);
@@ -869,6 +873,16 @@ linux_ioctl(void)
       return -EFAULT;
     return 0;
   }
+  if (req == TIOCGWINSZ) {
+    // QEMU's serial console doesn't know the real window, use the
+    // classic terminal size
+    memset(&w, 0, sizeof(w));
+    w.ws_row = 24;
+    w.ws_col = 80;
+    if (copyout(p->pagetable, p->sz, arg, (char *)&w, sizeof(w)) < 0)
+      return -EFAULT;
+    return 0;
+  }
   return -ENOTTY;
 }
 
@@ -878,4 +892,416 @@ uint64
 linux_readlinkat(void)
 {
   return -ENOENT;
+}
+
+//
+// XSL: file descriptor calls, used by the shell for pipes and
+// redirection (ls | wc, echo hi > file).
+//
+
+// put f in the lowest free fd that is >= min (for F_DUPFD).
+static int
+fdalloc_from(struct file *f, int min)
+{
+  int fd;
+  struct proc *p = myproc();
+
+  for (fd = min; fd < NOFILE; fd++) {
+    if (p->ofile[fd] == 0) {
+      p->ofile[fd] = f;
+      p->cloexec[fd] = 0;
+      return fd;
+    }
+  }
+  return -1;
+}
+
+// dup(fd): same arguments as xv6's dup.
+uint64
+linux_dup(void)
+{
+  struct file *f;
+
+  if (argfd(0, 0, &f) < 0)
+    return -EBADF;
+  return lerr(sys_dup(), EMFILE);
+}
+
+// dup3(oldfd, newfd, flags): make newfd refer to the same open file
+// as oldfd, closing whatever newfd was before. glibc's dup2() uses it.
+// this is how the shell points stdout (fd 1) at a pipe or a file.
+uint64
+linux_dup3(void)
+{
+  struct file *f;
+  int oldfd, newfd, flags;
+  struct proc *p = myproc();
+
+  argint(1, &newfd);
+  argint(2, &flags);
+  if (argfd(0, &oldfd, &f) < 0)
+    return -EBADF;
+  if (newfd < 0 || newfd >= NOFILE)
+    return -EBADF;
+  if (newfd == oldfd || (flags & ~L_O_CLOEXEC))
+    return -EINVAL;
+
+  if (p->ofile[newfd])
+    fileclose(p->ofile[newfd]);
+  p->ofile[newfd] = filedup(f);
+  p->cloexec[newfd] = (flags & L_O_CLOEXEC) != 0;
+  return newfd;
+}
+
+// fcntl(fd, cmd, arg)
+uint64
+linux_fcntl(void)
+{
+  struct file *f;
+  int fd, cmd, arg, newfd, fl;
+  struct proc *p = myproc();
+
+  argint(1, &cmd);
+  argint(2, &arg);
+  if (argfd(0, &fd, &f) < 0)
+    return -EBADF;
+
+  switch (cmd) {
+  case F_DUPFD:         // copy to the lowest free fd >= arg
+  case F_DUPFD_CLOEXEC: // the shell keeps its own copy of fds this way
+    if (arg < 0 || arg >= NOFILE)
+      return -EINVAL;
+    if ((newfd = fdalloc_from(f, arg)) < 0)
+      return -EMFILE;
+    filedup(f);
+    p->cloexec[newfd] = (cmd == F_DUPFD_CLOEXEC);
+    return newfd;
+  case F_GETFD: // fd flags: only close-on-exec exists
+    return p->cloexec[fd] ? FD_CLOEXEC : 0;
+  case F_SETFD:
+    p->cloexec[fd] = (arg & FD_CLOEXEC) != 0;
+    return 0;
+  case F_GETFL: // open file flags: access mode and append
+    if (f->readable && f->writable)
+      fl = L_O_RDWR;
+    else if (f->writable)
+      fl = L_O_WRONLY;
+    else
+      fl = 0;
+    if (f->append)
+      fl |= L_O_APPEND;
+    return fl;
+  case F_SETFL: // only O_APPEND can be changed here
+    f->append = (arg & L_O_APPEND) != 0;
+    return 0;
+  }
+  return -EINVAL;
+}
+
+// pipe2(fds, flags): xv6's pipe plus the O_CLOEXEC flag.
+uint64
+linux_pipe2(void)
+{
+  uint64 fdarray;
+  int flags, fd[2];
+  struct file *rf, *wf;
+  struct proc *p = myproc();
+
+  argaddr(0, &fdarray);
+  argint(1, &flags);
+  if (flags & ~L_O_CLOEXEC)
+    return -EINVAL; // O_NONBLOCK and O_DIRECT are not supported
+  if (pipealloc(&rf, &wf) < 0)
+    return -ENFILE;
+  fd[0] = -1;
+  if ((fd[0] = fdalloc(rf)) < 0 || (fd[1] = fdalloc(wf)) < 0) {
+    if (fd[0] >= 0)
+      p->ofile[fd[0]] = 0;
+    fileclose(rf);
+    fileclose(wf);
+    return -EMFILE;
+  }
+  if (copyout(p->pagetable, p->sz, fdarray, (char *)fd, sizeof(fd)) < 0) {
+    p->ofile[fd[0]] = 0;
+    p->ofile[fd[1]] = 0;
+    fileclose(rf);
+    fileclose(wf);
+    return -EFAULT;
+  }
+  p->cloexec[fd[0]] = p->cloexec[fd[1]] = (flags & L_O_CLOEXEC) != 0;
+  return 0;
+}
+
+// readv/writev(fd, iov, iovcnt): read or write a list of buffers,
+// one after the other, as if they were one big buffer.
+static uint64
+linux_rwv(int write)
+{
+  struct file *f;
+  uint64 iov;
+  struct linux_iovec v;
+  int iovcnt, i, n, total = 0;
+  struct proc *p = myproc();
+
+  argaddr(1, &iov);
+  argint(2, &iovcnt);
+  if (argfd(0, 0, &f) < 0 || (write ? !f->writable : !f->readable))
+    return -EBADF;
+  if (iovcnt < 0 || iovcnt > 1024)
+    return -EINVAL;
+
+  for (i = 0; i < iovcnt; i++) {
+    if (copyin(p->pagetable, p->sz, (char *)&v, iov + i * sizeof(v), sizeof(v)) < 0)
+      return -EFAULT;
+    if (v.len == 0)
+      continue;
+    n = write ? filewrite(f, v.base, v.len) : fileread(f, v.base, v.len);
+    if (n < 0)
+      return total > 0 ? total : -EIO;
+    total += n;
+    if (n < v.len) // short read (end of file) or write: stop here
+      break;
+  }
+  return total;
+}
+
+uint64
+linux_readv(void)
+{
+  return linux_rwv(0);
+}
+
+uint64
+linux_writev(void)
+{
+  return linux_rwv(1);
+}
+
+//
+// XSL: directories.
+//
+
+// getdents64(fd, buf, count): read directory entries.
+// an xv6 directory is a file of 16-byte struct dirent (inum, name).
+// Linux wants a list of variable sized struct linux_dirent64 records,
+// so we convert them one by one. f->off remembers where we are, so
+// the next call continues after the last entry we returned.
+uint64
+linux_getdents64(void)
+{
+  struct file *f;
+  struct dirent de;
+  uint64 buf;
+  int count, n, len, reclen;
+  char rec[48]; // a record: 19-byte header + name (max 14) + 0, padded
+  struct linux_dirent64 *d = (struct linux_dirent64 *)rec;
+  struct proc *p = myproc();
+
+  argaddr(1, &buf);
+  argint(2, &count);
+  if (argfd(0, 0, &f) < 0)
+    return -EBADF;
+  if (f->type != FD_INODE)
+    return -ENOTDIR;
+
+  ilock(f->ip);
+  if (f->ip->type != T_DIR) {
+    iunlock(f->ip);
+    return -ENOTDIR;
+  }
+  n = 0;
+  while (f->off + sizeof(de) <= f->ip->size) {
+    if (readi(f->ip, 0, (uint64)&de, f->off, sizeof(de)) != sizeof(de))
+      break;
+    if (de.inum == 0) { // unused slot (a deleted file)
+      f->off += sizeof(de);
+      continue;
+    }
+    // xv6 names use all 14 bytes with no 0 at the end
+    for (len = 0; len < DIRSIZ && de.name[len]; len++)
+      ;
+    reclen = (sizeof(struct linux_dirent64) + len + 1 + 7) & ~7;
+    if (n + reclen > count)
+      break; // buffer full, the program will call again
+
+    memset(rec, 0, sizeof(rec));
+    d->d_ino = de.inum;
+    d->d_off = f->off + sizeof(de); // where the next entry starts
+    d->d_reclen = reclen;
+    d->d_type = DT_UNKNOWN;
+    memmove(rec + sizeof(struct linux_dirent64), de.name, len);
+    if (copyout(p->pagetable, p->sz, buf + n, rec, reclen) < 0) {
+      iunlock(f->ip);
+      return -EFAULT;
+    }
+    n += reclen;
+    f->off += sizeof(de);
+  }
+  if (n == 0 && f->off + sizeof(de) <= f->ip->size) {
+    iunlock(f->ip);
+    return -EINVAL; // buffer too small for even one entry
+  }
+  iunlock(f->ip);
+  return n; // 0 means end of directory
+}
+
+// getcwd(buf, size): xv6 keeps the current directory as an inode,
+// not as a path, so we rebuild the path by walking up through "..":
+// in the parent we look for the entry with our inode number, that is
+// our name. repeat until the root. the path is built from the end.
+uint64
+linux_getcwd(void)
+{
+  char path[MAXPATH];
+  int pos, len, found;
+  uint off, inum;
+  uint64 buf, size;
+  struct dirent de;
+  struct inode *ip, *pp;
+  struct proc *p = myproc();
+
+  argaddr(0, &buf);
+  argaddr(1, &size);
+
+  pos = MAXPATH - 1;
+  path[pos] = 0;
+
+  begin_op();
+  ip = idup(p->cwd);
+  for (;;) {
+    ilock(ip);
+    if (ip->inum == ROOTINO) {
+      iunlockput(ip);
+      break;
+    }
+    inum = ip->inum;
+    pp = dirlookup(ip, "..", 0); // the parent
+    iunlockput(ip);
+    if (pp == 0) {
+      end_op();
+      return -ENOENT;
+    }
+
+    // find our name in the parent
+    ilock(pp);
+    found = 0;
+    for (off = 0; off < pp->size; off += sizeof(de)) {
+      if (readi(pp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
+        break;
+      if (de.inum == inum && namecmp(de.name, ".") != 0 &&
+          namecmp(de.name, "..") != 0) {
+        found = 1;
+        break;
+      }
+    }
+    iunlock(pp);
+    if (!found) { // our directory was removed
+      iput(pp);
+      end_op();
+      return -ENOENT;
+    }
+
+    // put "/name" in front of what we have
+    for (len = 0; len < DIRSIZ && de.name[len]; len++)
+      ;
+    if (pos - len - 1 < 0) {
+      iput(pp);
+      end_op();
+      return -ERANGE;
+    }
+    pos -= len;
+    memmove(path + pos, de.name, len);
+    path[--pos] = '/';
+    ip = pp;
+  }
+  end_op();
+
+  if (path[pos] == 0) // we are at the root
+    path[--pos] = '/';
+  len = MAXPATH - 1 - pos;
+  if (len + 1 > size)
+    return -ERANGE;
+  if (copyout(p->pagetable, p->sz, buf, path + pos, len + 1) < 0)
+    return -EFAULT;
+  return len + 1; // the system call returns the length with the 0
+}
+
+// chdir(path): like xv6's chdir, with Linux error codes.
+uint64
+linux_chdir(void)
+{
+  char path[MAXPATH];
+  struct inode *ip;
+  struct proc *p = myproc();
+
+  if (argstr(0, path, MAXPATH) < 0)
+    return -EFAULT;
+  begin_op();
+  if ((ip = namei(path)) == 0) {
+    end_op();
+    return -ENOENT;
+  }
+  ilock(ip);
+  if (ip->type != T_DIR) {
+    iunlockput(ip);
+    end_op();
+    return -ENOTDIR;
+  }
+  iunlock(ip);
+  iput(p->cwd);
+  end_op();
+  p->cwd = ip;
+  return 0;
+}
+
+// mkdirat(dirfd, path, mode). xv6 has no permissions, mode is ignored.
+uint64
+linux_mkdirat(void)
+{
+  char path[MAXPATH];
+  int dirfd;
+  struct inode *ip;
+
+  argint(0, &dirfd);
+  if (argstr(1, path, MAXPATH) < 0)
+    return -EFAULT;
+  if (dirfd != AT_FDCWD && path[0] != '/')
+    return -EINVAL;
+
+  begin_op();
+  if ((ip = namei(path)) != 0) {
+    iput(ip);
+    end_op();
+    return -EEXIST;
+  }
+  if ((ip = create(path, T_DIR, 0, 0)) == 0) {
+    end_op();
+    return -ENOENT; // the parent directory doesn't exist
+  }
+  iunlockput(ip);
+  end_op();
+  return 0;
+}
+
+// faccessat(dirfd, path, mode): may we read/write/run path?
+// everyone is root on xv6, so the answer is yes if the file exists.
+uint64
+linux_faccessat(void)
+{
+  char path[MAXPATH];
+  int dirfd;
+  struct inode *ip;
+
+  argint(0, &dirfd);
+  if (argstr(1, path, MAXPATH) < 0)
+    return -EFAULT;
+  if (dirfd != AT_FDCWD && path[0] != '/')
+    return -EINVAL;
+
+  begin_op();
+  ip = namei(path);
+  if (ip)
+    iput(ip);
+  end_op();
+  return ip ? 0 : -ENOENT;
 }
