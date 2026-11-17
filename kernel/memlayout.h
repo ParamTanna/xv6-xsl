@@ -25,6 +25,9 @@
 #define VIRTIO0     0x10001000
 #define VIRTIO0_IRQ 1
 
+// XSL: QEMU's Goldfish real time clock (date and time, see linux_time.c)
+#define RTC0 0x101000L
+
 // core-local interrupt controller (CLINT)
 #define CLINT_BASE  0x02000000L
 #define CLINT(hart) (CLINT_BASE + (hart) * 4)

@@ -34,6 +34,7 @@ OBJS = \
   $K/linux_syscall.o \
   $K/linux_mm.o \
   $K/linux_proc.o \
+  $K/linux_time.o
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin

@@ -12,6 +12,7 @@
 //   sysfile.c        files, directories, pipes, fds
 //   linux_proc.c     processes (clone, execve, wait4), ids, signals
 //   linux_mm.c       memory (brk, mmap, munmap, mprotect)
+//   linux_time.c     clocks and sleeping
 //   this file        system information (uname, prlimit64, getrandom)
 //
 
@@ -73,6 +74,10 @@ extern uint64 linux_brk(void);
 extern uint64 linux_munmap(void);
 extern uint64 linux_mmap(void);
 extern uint64 linux_mprotect(void);
+// linux_time.c
+extern uint64 linux_nanosleep(void);
+extern uint64 linux_clock_gettime(void);
+extern uint64 linux_clock_nanosleep(void);
 
 // prlimit64(pid, resource, new, old): read resource limits.
 // xv6 has no limits, so we say "unlimited", except for the
@@ -214,6 +219,10 @@ static struct linux_syscall linux_syscalls[] = {
   [LSYS_clone]           = {"clone",           linux_clone},
   [LSYS_execve]          = {"execve",          linux_execve},
   [LSYS_wait4]           = {"wait4",           linux_wait4},
+  // time (linux_time.c)
+  [LSYS_nanosleep]       = {"nanosleep",       linux_nanosleep},
+  [LSYS_clock_gettime]   = {"clock_gettime",   linux_clock_gettime},
+  [LSYS_clock_nanosleep] = {"clock_nanosleep", linux_clock_nanosleep},
   // memory (linux_mm.c)
   [LSYS_brk]             = {"brk",             linux_brk},
   [LSYS_munmap]          = {"munmap",          linux_munmap},

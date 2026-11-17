@@ -173,6 +173,7 @@ freeproc(struct proc *p)
   p->brkbase = p->brk = p->mmapnext = 0;
   memset(p->cloexec, 0, sizeof(p->cloexec));
   p->termsig = 0;
+  p->cputime = 0;
   p->state = UNUSED;
 }
 
@@ -536,7 +537,11 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        p->runstart = r_time();
         swtch(&c->context, &p->context);
+        // XSL: count the cpu time this process just used
+        // (for Linux clock_gettime(CLOCK_PROCESS_CPUTIME_ID)).
+        p->cputime += r_time() - p->runstart;
 
         // Don't re-enable interrupts on release.
         mycpu()->intena = 0;

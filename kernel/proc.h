@@ -111,4 +111,6 @@ struct proc {
   uint64 fpregs[33]; // f0-f31 and fcsr while not running (fp.S)
   char cloexec[NOFILE]; // close this fd on exec (Linux O_CLOEXEC)
   int termsig;     // signal that killed us, for a Linux parent's wait4()
+  uint64 cputime;  // cpu time used, in r_time() counts
+  uint64 runstart; // r_time() when we were last given the cpu
 };
