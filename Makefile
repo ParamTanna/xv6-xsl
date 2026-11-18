@@ -167,13 +167,18 @@ UPROGS=\
 # with Ubuntu's Linux cross compiler and glibc, linked statically,
 # and copied onto the xv6 disk without any change.
 LINUXCC = riscv64-linux-gnu-gcc
-LPROGS = linux/hello linux/args linux/files linux/memtest
+LPROGS = linux/hello linux/args linux/files linux/memtest linux/proctest
 
 linux/%: linux/%.c
 	$(LINUXCC) -static -O2 -o $@ $<
 
-fs.img: mkfs/mkfs README $(UPROGS) $(LPROGS)
-	mkfs/mkfs fs.img README $(UPROGS) $(LPROGS)
+# XSL: real Linux programs, the Lua interpreter and the BusyBox shell
+# and tools. linux/ports.sh downloads and builds them (static, riscv64).
+# they are put on the disk if they have been built.
+PORTS = $(wildcard linux/lua linux/busybox) linux/demo.lua
+
+fs.img: mkfs/mkfs README $(UPROGS) $(LPROGS) $(PORTS)
+	mkfs/mkfs fs.img README $(UPROGS) $(LPROGS) $(PORTS)
 
 -include kernel/*.d user/*.d
 
