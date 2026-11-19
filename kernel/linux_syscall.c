@@ -40,6 +40,7 @@ extern uint64 linux_close(void);
 extern uint64 linux_pipe2(void);
 extern uint64 linux_getdents64(void);
 extern uint64 linux_lseek(void);
+extern uint64 linux_sendfile(void);
 extern uint64 linux_read(void);
 extern uint64 linux_write(void);
 extern uint64 linux_readv(void);
@@ -182,6 +183,7 @@ static struct linux_syscall linux_syscalls[] = {
   [LSYS_pipe2]           = {"pipe2",           linux_pipe2},
   [LSYS_getdents64]      = {"getdents64",      linux_getdents64},
   [LSYS_lseek]           = {"lseek",           linux_lseek},
+  [LSYS_sendfile]        = {"sendfile",        linux_sendfile},
   [LSYS_read]            = {"read",            linux_read},
   [LSYS_write]           = {"write",           linux_write},
   [LSYS_readv]           = {"readv",           linux_readv},

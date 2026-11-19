@@ -34,7 +34,10 @@ linux_exit(void)
 // glibc's fork() is clone(CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID |
 // SIGCHLD, 0, 0, 0, &tid): a new process with a copy of the memory,
 // which is exactly xv6's fork. sharing the memory (CLONE_VM, which is
-// how threads are made) is not supported.
+// how threads are made) is not supported, except for vfork:
+//   CLONE_VM | CLONE_VFORK: vfork(). the child may only exec or exit,
+//     so giving it a copy of the memory (a normal fork) is correct,
+//     just slower. old Unix systems did vfork this way too.
 //   CLONE_CHILD_SETTID: write the child's pid at child_tid in the child
 //   CLONE_PARENT_SETTID: write it at parent_tid in the parent
 //   CLONE_CHILD_CLEARTID: only matters for threads, ignored
@@ -50,8 +53,12 @@ linux_clone(void)
   argaddr(1, &stack);
   argaddr(2, &ptid);
   argaddr(4, &ctid);
-  if ((flags & CLONE_VM) || stack != 0)
-    return -EINVAL; // a thread, or a child on its own stack
+  if ((flags & CLONE_VM) && !(flags & CLONE_VFORK))
+    return -EINVAL; // a thread
+  // glibc's vfork passes its own sp as the stack. the copy has that
+  // same stack anyway. any other stack is not supported.
+  if (stack != 0 && stack != p->trapframe->sp)
+    return -EINVAL;
 
   pid = kfork((flags & CLONE_CHILD_SETTID) ? ctid : 0);
   if (pid < 0)

@@ -894,6 +894,16 @@ linux_readlinkat(void)
   return -ENOENT;
 }
 
+// sendfile(out_fd, in_fd, offset, count) copies between two files
+// inside the kernel. xv6's read and write paths only copy to and from
+// user memory, so we don't offer it; BusyBox's cat then falls back to
+// plain read() and write(), which is what EINVAL tells it to do.
+uint64
+linux_sendfile(void)
+{
+  return -EINVAL;
+}
+
 //
 // XSL: file descriptor calls, used by the shell for pipes and
 // redirection (ls | wc, echo hi > file).
